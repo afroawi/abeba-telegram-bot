@@ -20,4 +20,8 @@ RUN groupadd --gid 10001 abeba && useradd --uid 10001 --gid abeba --create-home 
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 USER 10001:10001
+ENV ABEBA_BOT_HEALTH_HOST=0.0.0.0 ABEBA_BOT_HEALTH_PORT=8081
+EXPOSE 8081
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.getenv('ABEBA_BOT_HEALTH_PORT', '8081') + '/healthz', timeout=3).read()" || exit 1
 CMD ["python", "-m", "abeba_bot"]

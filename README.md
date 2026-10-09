@@ -48,7 +48,20 @@ Credentials stay in `.env` and are excluded by `.gitignore`. Avoid enabling HTTP
 
 ## Docker
 
-The image installs the frozen dependencies and bot package, then runs as user 10001. It contains no `.env` file and exposes no inbound port.
+The image installs the frozen dependencies and bot package, then runs as user 10001. It contains no `.env` file. An HTTP `/healthz` endpoint listens on container port 8081 and is mapped to host port **18151** by Compose. It reports process liveness; chat continues to use Telegram polling and the Mini App continues to load the frontend on port 18150.
+
+```sh
+cp .env.example .env
+# Configure bot/service credentials, a reachable HTTPS API and public Mini App URL.
+docker-compose build
+docker-compose run --rm --no-deps bot python -m abeba_bot --check
+docker-compose up -d --wait
+curl http://127.0.0.1:18151/healthz
+```
+
+Set `BOT_PORT` to change the host mapping. Compose fixes the internal listener to `0.0.0.0:8081`; local Python runs default to loopback and can use `ABEBA_BOT_HEALTH_HOST` / `ABEBA_BOT_HEALTH_PORT`. The health listener starts after Telegram command/menu setup and closes when polling exits. Liveness does not guarantee Telegram/backend reachability during retry loops. Use the shared stack or this standalone service to avoid duplicate pollers and port collisions.
+
+For direct image commands:
 
 ```sh
 docker build -t abeba-telegram-bot .

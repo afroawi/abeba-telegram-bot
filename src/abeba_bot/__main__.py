@@ -1,12 +1,12 @@
 import argparse
 import asyncio
 import logging
-import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, ErrorEvent, MenuButtonWebApp, WebAppInfo
 from .backend import Backend, BackendError
 from .config import Config
 from .handlers import router
+from .health import health_server
 
 
 async def run(config):
@@ -63,13 +63,14 @@ async def run(config):
                 text="Open chat app", web_app=WebAppInfo(url=config.mini_app_url)
             )
         )
-        await dispatcher.start_polling(
-            bot,
-            backend=backend,
-            config=config,
-            allowed_updates=["message", "callback_query"],
-            tasks_concurrency_limit=20,
-        )
+        async with health_server(config.health_host, config.health_port):
+            await dispatcher.start_polling(
+                bot,
+                backend=backend,
+                config=config,
+                allowed_updates=["message", "callback_query"],
+                tasks_concurrency_limit=20,
+            )
     finally:
         await backend.close()
         await bot.session.close()
