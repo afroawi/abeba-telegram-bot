@@ -45,3 +45,18 @@ Native messages use deterministic request keys so an API retry cannot charge/gen
 The initial version renders native answers as plain text, splitting safely within Telegram's text limit. Voice, Learn/Explore menus, quizzes, cycle logging, services, resources, reminders, linking/deletion and broader UI localization remain in the implementation plan. The Mini App uses the shared frontend; it does not read Telegram's transcript directly.
 
 Credentials stay in `.env` and are excluded by `.gitignore`. Avoid enabling HTTP/client debug logging, which can reveal Telegram token paths. Runtime logs record only error categories, never user questions or authorization headers. The Dockerfile is a development polling packaging option, not a production webhook deployment.
+
+## Docker
+
+The image installs the frozen dependencies and bot package, then runs as user 10001. It contains no `.env` file and exposes no inbound port.
+
+```sh
+docker build -t abeba-telegram-bot .
+docker run --rm --env-file .env abeba-telegram-bot python -m abeba_bot --check
+docker run --rm --init --read-only --tmpfs /tmp --env-file .env abeba-telegram-bot
+docker build --target test .
+```
+
+Set `.env` to use a backend reachable from inside Docker. `127.0.0.1` refers to the bot container; use `http://backend:8000/api/v1/` on the shared Compose network or HTTPS for a remote API. The Mini App needs a real public HTTPS URL. Actual startup updates the Telegram commands/menu and begins polling; `--check` performs only local validation. Keep a single running poller for each bot token.
+
+See [`../DOCKER.md`](../DOCKER.md) for the optional Telegram profile in the shared stack when working in the complete Abeba checkout.

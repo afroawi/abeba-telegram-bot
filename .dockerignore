@@ -1,6 +1,11 @@
 .venv
 .env
+.env.*
 .git
-tests
-__pycache__
-*.egg-info
+.github
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+.pytest_cache
+README.md
+Dockerfile
