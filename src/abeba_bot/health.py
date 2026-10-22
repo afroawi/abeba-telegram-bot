@@ -13,6 +13,7 @@ async def health(request):
 @asynccontextmanager
 async def health_server(host, port):
     app = web.Application(client_max_size=1024)
+    app.router.add_get("/", health)
     app.router.add_get("/healthz", health)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()

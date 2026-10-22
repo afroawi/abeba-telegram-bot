@@ -55,7 +55,7 @@ cp .env.example .env
 # Configure bot/service credentials, a reachable HTTPS API and public Mini App URL.
 docker-compose build
 docker-compose run --rm --no-deps bot python -m abeba_bot --check
-docker-compose up -d --wait
+docker-compose up -d
 curl http://127.0.0.1:18151/healthz
 ```
 
@@ -73,3 +73,7 @@ docker build --target test .
 Set `.env` to use a backend reachable from inside Docker. `127.0.0.1` refers to the bot container; use `http://backend:8000/api/v1/` on the shared Compose network or HTTPS for a remote API. The Mini App needs a real public HTTPS URL. Actual startup updates the Telegram commands/menu and begins polling; `--check` performs only local validation. Keep a single running poller for each bot token.
 
 See [`../DOCKER.md`](../DOCKER.md) for the optional Telegram profile in the shared stack when working in the complete Abeba checkout.
+
+## Deploy bot.abebachat.com
+
+Use [DEPLOYMENT.md](DEPLOYMENT.md), `.env.production.example` and `docker-compose.prod.yml` for the existing server. The host Nginx block is in `deploy/host-nginx.conf`.

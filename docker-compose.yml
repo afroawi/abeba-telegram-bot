@@ -1,4 +1,4 @@
-name: abeba-telegram-bot
+version: "3.7"
 services:
   bot:
     build: .

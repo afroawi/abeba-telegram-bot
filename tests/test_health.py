@@ -12,6 +12,7 @@ async def test_liveness_and_socket_cleanup():
         async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", trust_env=False) as client:
             response = await client.get("/healthz")
             assert response.status_code == 200
+            assert (await client.get("/")).json() == response.json()
             assert response.json() == {"status": "ok", "mode": "polling"}
             assert response.headers["cache-control"] == "no-store"
             assert (await client.get("/webhook")).status_code == 404
