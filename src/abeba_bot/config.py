@@ -12,6 +12,8 @@ class Config:
     mini_app_url: str
     health_host: str = "127.0.0.1"
     health_port: int = 8081
+    images_enabled: bool = True
+    audio_enabled: bool = True
 
     @classmethod
     def load(cls):
@@ -25,6 +27,12 @@ class Config:
         health_host = os.getenv("ABEBA_BOT_HEALTH_HOST", "127.0.0.1").strip()
         if not health_host:
             raise ValueError("Set a non-empty ABEBA_BOT_HEALTH_HOST.")
+        flags = {}
+        for name in ("ABEBA_BOT_IMAGES_ENABLED", "ABEBA_BOT_AUDIO_ENABLED"):
+            value = os.getenv(name, "true").strip().lower()
+            if value not in {"true", "false", "1", "0"}:
+                raise ValueError(f"{name} must be true or false.")
+            flags[name] = value in {"true", "1"}
         result = cls(
             os.getenv("TELEGRAM_BOT_TOKEN", ""),
             os.getenv("ABEBA_API_BASE_URL", "http://127.0.0.1:8000/api/v1/"),
@@ -32,6 +40,8 @@ class Config:
             os.getenv("ABEBA_MINI_APP_URL", ""),
             health_host,
             health_port,
+            flags["ABEBA_BOT_IMAGES_ENABLED"],
+            flags["ABEBA_BOT_AUDIO_ENABLED"],
         )
         if not result.bot_token or not result.service_token:
             raise ValueError(

@@ -61,3 +61,27 @@ Reference: [Telegram getUpdates/polling](https://core.telegram.org/bots/api#getu
 ## Compose compatibility
 
 The standalone Compose files use format `3.7` and omit the newer top-level `name` field so they work with legacy `docker-compose` (tested with 1.29.2) and modern Compose. The project name defaults to the project directory; use the same directory/project name for later updates. The startup commands omit the newer `--wait` option. Check `docker-compose -f docker-compose.prod.yml ps` and the `/healthz` endpoint after startup. Modern Compose may print an informational warning that `version` is obsolete.
+
+## Deploy formatted answers, illustrations and Listen
+
+Deploy the updated backend first; the new `POST /api/v1/channels/chat/audio/` route is required for Listen. No new migration or Nginx route is needed. On the backend, set `OPENAI_API_KEY` and enable the existing **Voice (TTS) configuration** in Django admin. The existing `ABEBA_TTS_MODEL`, `ABEBA_TTS_VOICE` and `ABEBA_TTS_MAX_CHARS` defaults are used if no admin configuration exists. Keep provider credentials exclusively on the backend.
+
+Rebuild/recreate the existing backend web service using its normal production Compose deployment, then update the bot:
+
+```sh
+# From abeba-telegram-bot; merge these into the existing .env if desired:
+# ABEBA_BOT_IMAGES_ENABLED=true
+# ABEBA_BOT_AUDIO_ENABLED=true
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+Both flags default to true. To deploy only the formatted text and character art before the backend is updated, set `ABEBA_BOT_AUDIO_ENABLED=false` in the bot's existing `.env` and recreate the bot. The public domains, ports and Nginx configuration are unchanged. The speech request uses the current backend proxy path and finishes each generated part within the existing timeout budget.
+
+In the real Telegram bot, verify `/start` shows the welcome character, ask a question and check headings/bullets, tap **Show illustration**, then tap **Listen**. `/listen` reads the latest answer in the active conversation. Try a long answer and confirm all numbered MP3 parts arrive, then repeat with an Amharic answer. Check `/withdraw` blocks audio and that disabling TTS produces a clear message while the text answer remains available. Provider/Telegram integration requires the real credentials; automated tests use mocks and do not send live messages or generate paid audio.
+
+
+### Existing speech-provider retirement
+
+The official OpenAI documentation states that `gpt-4o-mini-tts`, `tts-1` and `tts-1-hd` shut down on **2027-01-06**. This update deliberately retains the existing backend/admin speech configuration for the current deployment. Schedule migration of the speech-provider adapter before that date. OpenAI's documented replacement uses the Realtime API, so changing only the model string in the existing Speech API call is insufficient. The bot's authenticated MP3 endpoint can remain stable while its provider implementation changes.
+
+Source, checked 2026-10-26: [OpenAI text-to-speech documentation](https://developers.openai.com/api/docs/guides/text-to-speech).

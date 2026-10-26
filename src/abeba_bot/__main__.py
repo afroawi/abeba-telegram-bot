@@ -52,6 +52,7 @@ async def run(config):
                     ("new", "Start a new conversation"),
                     ("history", "Recent conversations"),
                     ("language", "Choose chat language"),
+                    ("listen", "Hear the latest answer (AI voice)"),
                     ("stop", "Pause native chat"),
                     ("privacy", "Privacy and consent"),
                     ("help", "How to use Abeba"),

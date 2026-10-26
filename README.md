@@ -2,7 +2,7 @@
 
 One bot offers **Chat here** (native Telegram messages) and **Open chat app** (the sibling frontend's Mini App). Both use the same Django account, consent, conversation context and quota.
 
-This development slice implements text chat, new/select recent conversations, English/Amharic language choice, Mini App handoff, pause and consent withdrawal. It deliberately uses long polling; durable production webhook ingestion and notifications are next milestones.
+This development slice implements text chat, formatted answers, optional character illustrations, on-demand spoken replies, new/select recent conversations, English/Amharic language choice, Mini App handoff, pause and consent withdrawal. It deliberately uses long polling; durable production webhook ingestion and notifications are next milestones.
 
 ## Setup
 
@@ -34,7 +34,7 @@ Set these locally in `.env`:
 
 `/start` shows an explanation of AI processing and two buttons. **Chat here** records affirmative AI consent and enables native chat. **Open chat app** opens the web chat; consent is collected there if needed. Replies include a button to continue that exact owned conversation in the Mini App.
 
-Commands: `/ask question`, `/new`, `/history`, `/language`, `/stop`, `/privacy`, `/withdraw`, `/help`. `/stop` pauses native chat but leaves Mini App access available; `/withdraw` disables AI processing in both interfaces. There are no reminder subscriptions in this initial release. Group messages never load a user's private account or call the AI.
+Commands: `/ask question`, `/new`, `/history`, `/language`, `/listen`, `/stop`, `/privacy`, `/withdraw`, `/help`. `/stop` pauses native chat but leaves Mini App access available; `/withdraw` disables AI processing in both interfaces. There are no reminder subscriptions in this initial release. Group messages never load a user's private account or call the AI.
 
 The backend creates channel sessions using a trusted service credential and the verified Telegram sender. Do not accept a sender ID from arbitrary web requests. Bot tokens are short-lived in the service response; database credentials are hashed. Current implementation obtains a scoped session per action.
 
@@ -42,7 +42,7 @@ The backend creates channel sessions using a trusted service credential and the 
 
 Native messages use deterministic request keys so an API retry cannot charge/generate the same logical request twice. This does not guarantee exactly-once Telegram delivery: a send timeout can be ambiguous. A process crash during polling may lose a transport reply or accepted update; durable updates, background AI jobs and an outbound delivery ledger are required before production.
 
-The initial version renders native answers as plain text, splitting safely within Telegram's text limit. Voice, Learn/Explore menus, quizzes, cycle logging, services, resources, reminders, linking/deletion and broader UI localization remain in the implementation plan. The Mini App uses the shared frontend; it does not read Telegram's transcript directly.
+Native answers render an escaped Markdown subset as Telegram HTML: headings, emphasis, lists, inline code and HTTPS links. Structured examples, follow-up suggestions and reading links appear as separate sections. Long replies preserve formatting, emoji and words across message boundaries. Incoming voice-note transcription, Learn/Explore menus, quizzes, cycle logging, services, resources, reminders, linking/deletion and broader UI localization remain in the implementation plan. The Mini App uses the shared frontend; it does not read Telegram's transcript directly.
 
 Credentials stay in `.env` and are excluded by `.gitignore`. Avoid enabling HTTP/client debug logging, which can reveal Telegram token paths. Runtime logs record only error categories, never user questions or authorization headers. The Dockerfile is a development polling packaging option, not a production webhook deployment.
 
@@ -77,3 +77,31 @@ See [`../DOCKER.md`](../DOCKER.md) for the optional Telegram profile in the shar
 ## Deploy bot.abebachat.com
 
 Use [DEPLOYMENT.md](DEPLOYMENT.md), `.env.production.example` and `docker-compose.prod.yml` for the existing server. The host Nginx block is in `deploy/host-nginx.conf`.
+
+## Formatted replies, character images and spoken answers
+
+`/start` sends the supplied welcoming Abeba character and a formatted introduction. Answers include an optional **Show illustration** button, using a curated local welcome, family-planning or HIV-awareness asset. Images are packaged in the Python wheel and Docker image. A failed image upload does not prevent the text answer. AI-supplied media URLs are never fetched.
+
+Tap **Listen · በድምፅ** under an answer to hear that exact saved answer. `/listen` reads the latest assistant answer in the active conversation. Exact messages such as `read it aloud` and `send audio` also work. Audio is generated only on request, uploaded as MP3 with an AI-voice disclosure, and split into numbered parts for long answers. It reads the answer and up to three examples; reading links and suggested next questions remain in the text. Failures leave the text answer available. This feature does not transcribe incoming voice notes.
+
+The backend must include `POST /api/v1/channels/chat/audio/`. It accepts `{ "message_id": 123, "part": 1 }`, validates channel authentication, answer ownership, current AI consent and native-chat pause state, and streams MP3 bytes. It accepts only saved assistant answers, not arbitrary TTS text. It uses the backend's existing OpenAI key and admin-managed TTS model/voice/tone settings. No OpenAI key belongs in the bot environment. Long text is split using character and conservative byte budgets, including Amharic. The first 300 UTF-8 bytes of tone instructions are used to leave space within the mini-TTS input limit.
+
+Audio is cached privately for 15 minutes, with keys scoped to the user, answer, text and voice configuration; no public media URL is created. The default Django cache is process-local, so different workers may generate the same part independently. A shared Django cache can deduplicate across workers. Requests are throttled at 20 audio parts per minute per account. Speech uses provider billing separately from the chat token allowance. English and Amharic text are preserved; pronunciation should be checked with the configured voice on the real bot.
+
+Optional bot settings (enabled by default, passed through both standalone Compose files):
+
+```dotenv
+ABEBA_BOT_IMAGES_ENABLED=true
+ABEBA_BOT_AUDIO_ENABLED=true
+```
+
+Set either to `false` to disable it. The backend TTS configuration can also disable spoken replies app-wide. Deploy the backend update before enabling audio on the bot. The existing mobile TTS endpoint remains unchanged.
+
+References: [Telegram formatting](https://core.telegram.org/bots/api#formatting-options), [Telegram MP3 audio](https://core.telegram.org/bots/api#sendaudio), [OpenAI text-to-speech](https://developers.openai.com/api/docs/guides/text-to-speech).
+
+
+### Existing speech-provider retirement
+
+The official OpenAI documentation states that `gpt-4o-mini-tts`, `tts-1` and `tts-1-hd` shut down on **2027-01-06**. This update deliberately retains the existing backend/admin speech configuration for the current deployment. Schedule migration of the speech-provider adapter before that date. OpenAI's documented replacement uses the Realtime API, so changing only the model string in the existing Speech API call is insufficient. The bot's authenticated MP3 endpoint can remain stable while its provider implementation changes.
+
+Source, checked 2026-10-26: [OpenAI text-to-speech documentation](https://developers.openai.com/api/docs/guides/text-to-speech).

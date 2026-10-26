@@ -16,3 +16,6 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.setuptools.package-data]
+abeba_bot = ["assets/*.png", "assets/README.md"]
