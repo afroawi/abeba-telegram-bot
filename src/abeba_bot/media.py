@@ -1,6 +1,5 @@
 """Curated local character art. Model-generated media URLs are never fetched."""
 import logging
-import re
 from importlib.resources import files
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import FSInputFile
@@ -11,15 +10,6 @@ ASSETS = {
     'contraception': ('contraception.png', 'Let’s learn about family planning. 🌼'),
     'hiv': ('hiv-awareness.png', 'Clear information, without judgment. 🌼'),
 }
-
-
-def illustration_for(text):
-    text = text.casefold()
-    if re.search(r'\bhiv\b|\baids\b|ኤች\s*አይ\s*ቪ|ኤድስ', text):
-        return 'hiv'
-    if re.search(r'contracepti|family planning|birth control|የቤተሰብ ዕቅድ|የቤተሰብ እቅድ|ወሊድ መከላከ', text):
-        return 'contraception'
-    return 'welcome'
 
 
 async def send_character(message, kind='welcome'):

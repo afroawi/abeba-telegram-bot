@@ -17,13 +17,15 @@ class Backend:
     async def close(self):
         await self.client.aclose()
 
-    async def request(self, method, path, token=None, data=None, service=False):
+    async def request(self, method, path, token=None, data=None, service=False, *, public=False, params=None):
         headers = (
             {"X-Abeba-Service-Token": self.service_token}
             if service
             else {"Authorization": f"Bearer {token}"}
         )
-        response = await self.client.request(method, path, headers=headers, json=data)
+        if public:
+            headers = {}
+        response = await self.client.request(method, path, headers=headers, json=data, params=params)
         try:
             payload = response.json()
         except ValueError:

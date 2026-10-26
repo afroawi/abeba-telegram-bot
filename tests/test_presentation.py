@@ -8,7 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import SendPhoto
 
 from abeba_bot.backend import Backend, BackendError
-from abeba_bot.handlers import chat, deliver_audio, listen_answer, start, show_illustration, active_users
+from abeba_bot.handlers import chat, deliver_audio, listen_answer, start, retired_illustration, active_users
 from abeba_bot.media import send_character
 from abeba_bot.renderers import markdown_html, reply_html, split_html
 from test_bot import message, backend
@@ -66,7 +66,7 @@ def test_code_and_invalid_link_are_readable():
     assert 'javascript:' not in rendered
 
 
-async def test_answer_has_structured_formatting_listen_and_optional_image():
+async def test_answer_has_structured_formatting_and_only_listen():
     msg, api = message(), backend()
     api.request.return_value = {'reply': '**HIV facts**', 'session_id': 7, 'message_id': 81,
                                 'structured': {'examples': ['Testing helps.']}}
@@ -76,7 +76,7 @@ async def test_answer_has_structured_formatting_listen_and_optional_image():
     assert call.kwargs['link_preview_options'].is_disabled
     assert 'Testing helps.' in call.args[0]
     callbacks = [button.callback_data for row in call.kwargs['reply_markup'].inline_keyboard for button in row]
-    assert 'listen:81' in callbacks and 'illustration:hiv' in callbacks
+    assert callbacks == ['listen:81']
     assert api.request.await_count == 1  # No audio/provider request during text chat.
 
 
@@ -141,14 +141,16 @@ async def test_disabled_media_flags_hide_buttons_and_skip_photo():
     msg.answer.reset_mock()
     api.request.return_value = {'reply': 'Answer', 'session_id': 7, 'message_id': 81}
     await chat(msg, api, config)
-    assert len(msg.answer.call_args.kwargs['reply_markup'].inline_keyboard) == 2
+    assert msg.answer.call_args.kwargs['reply_markup'] is None
 
 
-async def test_illustration_callback_uses_curated_file_only():
+async def test_retired_illustration_does_not_send_a_photo():
     msg = message()
     msg.answer_photo = AsyncMock()
-    await show_illustration(callback(msg, 'illustration:hiv'), CONFIG)
-    assert str(msg.answer_photo.call_args.args[0].path).endswith('/assets/hiv-awareness.png')
+    cb = callback(msg, 'illustration:hiv')
+    await retired_illustration(cb)
+    msg.answer_photo.assert_not_called()
+    assert '/learn' in cb.answer.call_args.args[0]
 
 
 async def test_audio_backend_requires_binary_and_part_headers():
@@ -174,7 +176,7 @@ async def test_audio_backend_rejects_html_response():
     await api.close()
 
 
-@pytest.mark.parametrize('text,expected', [(' read it aloud ', 'listen_latest'), ('How can I learn more?', 'chat')])
+@pytest.mark.parametrize('text,expected', [(' read it aloud ', 'listen_latest'), ('How can I learn more?', 'chat'), ('/learn', 'learn_start'), ('/chat', 'chat_entry'), ('/app', 'open_app')])
 async def test_audio_phrases_route_before_general_text(text, expected):
     from datetime import datetime, timezone
     from aiogram.types import Message, Chat, User

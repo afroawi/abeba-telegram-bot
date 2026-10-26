@@ -15,31 +15,45 @@ from aiogram.types import (
 )
 from .backend import BackendError
 from .renderers import chat_url, reply_html, split_html
-from .media import illustration_for, send_character
+from .media import send_character
+from .learn import register_learn_handlers
 
 router = Router()
+register_learn_handlers(router)
 log = logging.getLogger(__name__)
 # Only transport backpressure; durable active conversation lives in Django.
 active_users = set()
 
 
-def menu(url, session_id=None, *, answer_id=None, illustration=None, audio_enabled=True):
-    rows = [
-        [InlineKeyboardButton(text="💬 Chat here", callback_data="chat_here")],
-        [InlineKeyboardButton(text="🌼 Open chat app", web_app=WebAppInfo(url=chat_url(url, session_id)))],
-    ]
-    if answer_id and audio_enabled:
-        rows.append([InlineKeyboardButton(text="🔊 Listen · በድምፅ", callback_data=f"listen:{answer_id}")])
-    if illustration:
-        rows.append([InlineKeyboardButton(text="🌼 Show illustration", callback_data=f"illustration:{illustration}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def answer_controls(answer_id=None, audio_enabled=True):
+    if not answer_id or not audio_enabled:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🔊 Listen · በድምፅ", callback_data=f"listen:{answer_id}")
+    ]])
+
+
+def consent_controls():
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="I agree — start chatting", callback_data="consent:accept")
+    ]])
+
+
+async def explain_consent(message):
+    await message.answer(
+        "<b>Before we chat</b>\n\n"
+        "Your messages and recent conversation context are sent to Abeba’s AI provider to prepare replies. "
+        "Telegram also handles messages you send here. Avoid identifying details. "
+        "Abeba provides educational information, not a diagnosis.\n\n"
+        "Tap I agree to enable AI chat. You can withdraw consent with /withdraw. "
+        "You can read published topics with /learn at any time.",
+        parse_mode="HTML", reply_markup=consent_controls(),
+    )
 
 
 async def send_reply(message, result, config, language="en"):
     chunks = split_html(reply_html(result, language))
-    artwork = illustration_for(result.get("reply", "")) if getattr(config, "images_enabled", True) else None
-    keyboard = menu(config.mini_app_url, result["session_id"], answer_id=result.get("message_id"),
-                    illustration=artwork, audio_enabled=getattr(config, "audio_enabled", True))
+    keyboard = answer_controls(result.get("message_id"), getattr(config, "audio_enabled", True))
     for index, chunk in enumerate(chunks):
         await message.answer(chunk, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True),
                              reply_markup=keyboard if index == len(chunks) - 1 else None)
@@ -70,24 +84,43 @@ async def start(message: Message, backend, config):
         await send_character(message)
     await message.answer(
         "<b>Welcome to Abeba 🌼</b>\nA space to ask, learn and grow.\n\n"
-        "<b>Choose your space</b>\n"
-        "💬 <b>Chat here</b> — talk right here in Telegram.\n"
-        "🌼 <b>Open chat app</b> — use the full web interface.\n"
-        "Both share your conversation and allowance.\n\n"
-        "<b>Before we chat</b>\n"
-        "Choosing Chat here agrees to sending your messages and recent conversation context to Abeba’s AI provider. "
-        "Telegram also handles messages here. Avoid identifying details. "
-        "Abeba provides educational information, not a diagnosis.\n\n"
-        "<b>Make yourself at home</b>\n"
+        "Open the command menu or type / to find your options.\n\n"
+        "/learn — browse and read topics in your language\n"
+        "/chat — start or resume AI chat\n"
+        "/app — open the web chat app\n"
         "/new — fresh conversation\n/history — recent conversations\n"
         "/listen — hear the latest answer in an AI-generated voice\n"
-        "/language — English or አማርኛ\n/stop — pause native chat\n/privacy — data and consent",
+        "/language — AI chat language\n/stop — pause AI chat\n/privacy — data and consent",
         parse_mode="HTML",
-        reply_markup=menu(config.mini_app_url),
     )
 
 
-@router.callback_query(F.data == "chat_here")
+@router.message(Command("chat"))
+async def chat_entry(message: Message, backend):
+    session = await identity(message, backend)
+    if not session:
+        return
+    if not session["ai_consent"]:
+        await explain_consent(message)
+        return
+    if not session["bot_enabled"]:
+        await backend.request("PATCH", "channels/preferences/", session["token"], {"bot_enabled": True})
+    await message.answer("You’re ready to chat. Type your question whenever you’re ready.")
+
+
+@router.message(Command("app"))
+async def open_app(message: Message, backend, config):
+    session = await identity(message, backend)
+    if session:
+        await message.answer(
+            "Open your conversation in the Abeba chat app:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Open Abeba", web_app=WebAppInfo(url=chat_url(config.mini_app_url, session["session_id"])))
+            ]]),
+        )
+
+
+@router.callback_query(F.data == "consent:accept")
 async def enable(callback: CallbackQuery, backend, config):
     await callback.answer()
     session = await identity(callback, backend)
@@ -103,10 +136,15 @@ async def enable(callback: CallbackQuery, backend, config):
             "bot_enabled": True,
         },
     )
-    await callback.message.answer(
-        "You can type your question here. Open the chat app any time to continue the same conversation.",
-        reply_markup=menu(config.mini_app_url, session["session_id"]),
-    )
+    await callback.message.answer("You’re ready to chat. Type your question here. Use /learn for topics or /app for the web chat.")
+
+
+@router.callback_query(F.data == "chat_here")
+async def legacy_chat_entry(callback: CallbackQuery):
+    await callback.answer()
+    if callback.message and callback.message.chat.type == "private":
+        await callback.message.answer("Use /chat to start or resume AI chat from the command menu.")
+
 
 
 @router.message(Command("stop"))
@@ -117,7 +155,7 @@ async def stop(message: Message, backend):
             "PATCH", "channels/preferences/", session["token"], {"bot_enabled": False}
         )
         await message.answer(
-            "Native chat is paused. Use /start and choose Chat here to resume. You can still use the chat app. No reminder subscriptions exist in this initial version."
+            "AI chat is paused. Use /chat to resume, /learn to read topics, or /app to open the web chat."
         )
 
 
@@ -154,7 +192,6 @@ async def new(message: Message, backend, config):
         )
         await message.answer(
             "A fresh conversation is ready.",
-            reply_markup=menu(config.mini_app_url, chat["session_id"]),
         )
 
 
@@ -198,8 +235,7 @@ async def select_history(callback: CallbackQuery, backend, config):
         await send_reply(callback.message, {"reply": answer["text"], "structured": answer.get("structured", {}),
                                            "message_id": answer["id"], "session_id": chat_id}, config, session.get("language", "en"))
     else:
-        await callback.message.answer("Conversation selected. Send your question here or open the chat app.",
-                                      reply_markup=menu(config.mini_app_url, chat_id))
+        await callback.message.answer("Conversation selected. Send your question here or use /app for the web chat.")
 
 
 @router.message(Command("language"))
@@ -243,7 +279,7 @@ async def listen_latest(message: Message, backend, config):
         await message.answer("Spoken replies are turned off. Your text answer is still available.")
         return
     if not session["ai_consent"] or not session["bot_enabled"]:
-        await message.answer("Choose Chat here and accept AI processing first. Use /start to continue.")
+        await message.answer("Use /chat and accept AI processing first.")
         return
     context = await backend.request("GET", "channels/chat/context/", session["token"])
     answers = [row for row in context["messages"] if row["role"] == "assistant"]
@@ -271,10 +307,10 @@ async def chat(message: Message, backend, config, command: CommandObject | None 
     try:
         session = await backend.session(user_id)
         if not session["ai_consent"] or not session["bot_enabled"]:
-            await message.answer(
-                "Choose Chat here to accept AI processing and enable native chat. Use /start to read the explanation.",
-                reply_markup=menu(config.mini_app_url),
-            )
+            if not session["ai_consent"]:
+                await explain_consent(message)
+            else:
+                await message.answer("AI chat is paused. Use /chat to resume, or /learn to read topics.")
             return
         if len(text) > 6000:
             await message.answer("Please keep your question under 6,000 characters.")
@@ -296,7 +332,7 @@ async def chat(message: Message, backend, config, command: CommandObject | None 
 
 async def deliver_audio(message, session, backend, answer_id, user_id):
     if not session["ai_consent"] or not session["bot_enabled"]:
-        await message.answer("Choose Chat here and accept AI processing before requesting spoken replies. Use /start to continue.")
+        await message.answer("Use /chat and accept AI processing before requesting spoken replies.")
         return
     if user_id in active_users:
         await message.answer("A request is already being prepared. Please wait.")
@@ -343,16 +379,9 @@ async def listen_answer(callback: CallbackQuery, backend, config):
 
 
 @router.callback_query(F.data.startswith("illustration:"))
-async def show_illustration(callback: CallbackQuery, config):
-    await callback.answer()
-    if not callback.message or callback.message.chat.type != "private" or callback.from_user.is_bot:
-        return
-    if not getattr(config, "images_enabled", True):
-        await callback.message.answer("Character images are turned off.")
-        return
-    kind = callback.data.split(":", 1)[1]
-    if not await send_character(callback.message, kind):
-        await callback.message.answer("The illustration is unavailable right now. You can keep chatting here.")
+async def retired_illustration(callback: CallbackQuery):
+    # Old messages may still have the retired button; do not send another image.
+    await callback.answer("Illustrations are no longer offered here. Use /learn to explore topics.")
 
 
 @router.message()

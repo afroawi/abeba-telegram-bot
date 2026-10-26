@@ -55,6 +55,9 @@ async def test_polling_owns_health_server_and_releases_clients(monkeypatch):
     monkeypatch.setattr(main, "health_server", tracked_server)
     with pytest.raises(RuntimeError, match="simulated polling failure"):
         await main.run(config)
+    commands = {item.command for item in bot.set_my_commands.call_args.args[0]}
+    assert {'learn', 'chat', 'app', 'listen', 'withdraw'} <= commands
+    assert bot.set_chat_menu_button.call_args.kwargs['menu_button'].type == 'commands'
     bot.session.close.assert_awaited_once()
     api.close.assert_awaited_once()
     async with httpx.AsyncClient(trust_env=False) as client:

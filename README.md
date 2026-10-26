@@ -1,8 +1,8 @@
 # Abeba Telegram bot — initial implementation
 
-One bot offers **Chat here** (native Telegram messages) and **Open chat app** (the sibling frontend's Mini App). Both use the same Django account, consent, conversation context and quota.
+One bot offers native Telegram AI chat (`/chat`), the sibling frontend’s Mini App (`/app`), and published multilingual Learn articles (`/learn`). AI chat and the Mini App share the same Django account, consent, conversation context and quota. Learn reading uses the public content API independently.
 
-This development slice implements text chat, formatted answers, optional character illustrations, on-demand spoken replies, new/select recent conversations, English/Amharic language choice, Mini App handoff, pause and consent withdrawal. It deliberately uses long polling; durable production webhook ingestion and notifications are next milestones.
+This development slice implements text chat, formatted answers, a welcome character, multilingual topic browsing, on-demand spoken replies, new/select recent conversations, English/Amharic language choice, Mini App handoff, pause and consent withdrawal. It deliberately uses long polling; durable production webhook ingestion and notifications are next milestones.
 
 ## Setup
 
@@ -28,13 +28,13 @@ Set these locally in `.env`:
 .venv/bin/python -m pytest -q
 ```
 
-`--check` validates configuration without making Telegram/backend requests. Actual startup registers commands and the Open chat app menu on the configured bot, then polls messages and callbacks. Use a dedicated development bot. Startup refuses to run if a webhook is already registered; it does not remove that webhook or drop pending updates.
+`--check` validates configuration without making Telegram/backend requests. Actual startup registers commands and the Telegram command menu on the configured bot, then polls messages and callbacks. Use a dedicated development bot. Startup refuses to run if a webhook is already registered; it does not remove that webhook or drop pending updates.
 
 ## User flow
 
-`/start` shows an explanation of AI processing and two buttons. **Chat here** records affirmative AI consent and enables native chat. **Open chat app** opens the web chat; consent is collected there if needed. Replies include a button to continue that exact owned conversation in the Mini App.
+`/start` shows the welcome character and command guide. Open Telegram’s command menu or type `/` for `/learn`, `/chat`, `/app` and the other commands. `/chat` explains AI processing and requires an explicit “I agree — start chatting” tap before enabling AI chat. Previously consented users can use `/chat` to resume a paused conversation. `/app` returns a one-off Mini App launcher for the current owned conversation; it is not repeated below answers. AI answers keep only their optional Listen button. The retired Show illustration option is no longer displayed.
 
-Commands: `/ask question`, `/new`, `/history`, `/language`, `/listen`, `/stop`, `/privacy`, `/withdraw`, `/help`. `/stop` pauses native chat but leaves Mini App access available; `/withdraw` disables AI processing in both interfaces. There are no reminder subscriptions in this initial release. Group messages never load a user's private account or call the AI.
+Commands: `/learn`, `/chat`, `/app`, `/ask question`, `/new`, `/history`, `/language`, `/listen`, `/stop`, `/privacy`, `/withdraw`, `/help`. `/stop` pauses native chat but leaves Mini App access available; `/withdraw` disables AI processing in both interfaces. There are no reminder subscriptions in this initial release. Group messages never load a user's private account or call the AI.
 
 The backend creates channel sessions using a trusted service credential and the verified Telegram sender. Do not accept a sender ID from arbitrary web requests. Bot tokens are short-lived in the service response; database credentials are hashed. Current implementation obtains a scoped session per action.
 
@@ -42,7 +42,7 @@ The backend creates channel sessions using a trusted service credential and the 
 
 Native messages use deterministic request keys so an API retry cannot charge/generate the same logical request twice. This does not guarantee exactly-once Telegram delivery: a send timeout can be ambiguous. A process crash during polling may lose a transport reply or accepted update; durable updates, background AI jobs and an outbound delivery ledger are required before production.
 
-Native answers render an escaped Markdown subset as Telegram HTML: headings, emphasis, lists, inline code and HTTPS links. Structured examples, follow-up suggestions and reading links appear as separate sections. Long replies preserve formatting, emoji and words across message boundaries. Incoming voice-note transcription, Learn/Explore menus, quizzes, cycle logging, services, resources, reminders, linking/deletion and broader UI localization remain in the implementation plan. The Mini App uses the shared frontend; it does not read Telegram's transcript directly.
+Native answers render an escaped Markdown subset as Telegram HTML: headings, emphasis, lists, inline code and HTTPS links. Structured examples, follow-up suggestions and reading links appear as separate sections. Long replies preserve formatting, emoji and words across message boundaries. Incoming voice-note transcription, quizzes, cycle logging, services, resources, reminders, linking/deletion and broader UI localization remain in the implementation plan. The Mini App uses the shared frontend; it does not read Telegram's transcript directly.
 
 Credentials stay in `.env` and are excluded by `.gitignore`. Avoid enabling HTTP/client debug logging, which can reveal Telegram token paths. Runtime logs record only error categories, never user questions or authorization headers. The Dockerfile is a development polling packaging option, not a production webhook deployment.
 
@@ -78,9 +78,9 @@ See [`../DOCKER.md`](../DOCKER.md) for the optional Telegram profile in the shar
 
 Use [DEPLOYMENT.md](DEPLOYMENT.md), `.env.production.example` and `docker-compose.prod.yml` for the existing server. The host Nginx block is in `deploy/host-nginx.conf`.
 
-## Formatted replies, character images and spoken answers
+## Formatted replies, welcome character and spoken answers
 
-`/start` sends the supplied welcoming Abeba character and a formatted introduction. Answers include an optional **Show illustration** button, using a curated local welcome, family-planning or HIV-awareness asset. Images are packaged in the Python wheel and Docker image. A failed image upload does not prevent the text answer. AI-supplied media URLs are never fetched.
+`/start` sends the supplied welcoming Abeba character and a formatted introduction. There is no Show illustration button or repeated chat/app navigation under answers. The welcome image is packaged in the Python wheel and Docker image; a failed upload does not prevent text. Existing topic-character assets remain bundled for future use, but no chat command sends them. AI-supplied media URLs are never fetched.
 
 Tap **Listen · በድምፅ** under an answer to hear that exact saved answer. `/listen` reads the latest assistant answer in the active conversation. Exact messages such as `read it aloud` and `send audio` also work. Audio is generated only on request, uploaded as MP3 with an AI-voice disclosure, and split into numbered parts for long answers. It reads the answer and up to three examples; reading links and suggested next questions remain in the text. Failures leave the text answer available. This feature does not transcribe incoming voice notes.
 
@@ -105,3 +105,14 @@ References: [Telegram formatting](https://core.telegram.org/bots/api#formatting-
 The official OpenAI documentation states that `gpt-4o-mini-tts`, `tts-1` and `tts-1-hd` shut down on **2027-01-06**. This update deliberately retains the existing backend/admin speech configuration for the current deployment. Schedule migration of the speech-provider adapter before that date. OpenAI's documented replacement uses the Realtime API, so changing only the model string in the existing Speech API call is insufficient. The bot's authenticated MP3 endpoint can remain stable while its provider implementation changes.
 
 Source, checked 2026-10-26: [OpenAI text-to-speech documentation](https://developers.openai.com/api/docs/guides/text-to-speech).
+
+
+## Read published topics with /learn
+
+`/learn` opens a reading-language picker: English, Amharic, Tigrinya, Oromo, Afar, Sidama and Somali. Selecting a language lists the published topics with pagination. Select a topic to read the full article in Telegram, including its summary, Markdown or structured sections, key points, support contacts, source link and any published audio-resource links. Long articles are split safely, with **Topics** and **Reading language** controls on the final message. Changing language from an article keeps the same topic. UI labels use English and Amharic; article content uses all seven published languages.
+
+Learn uses unauthenticated `GET learn/topics/?language=…&page=…` and `GET learn/topics/<slug>/?language=…`; it never sends a service credential or channel bearer token to these public endpoints, creates no user session, and makes no AI requests. Reading does not require AI consent and continues while AI chat is paused or consent is withdrawn. The reading language is stored in navigation callbacks and does not change the shared AI-chat language preference.
+
+Only published content returned by the backend is shown. The existing API can fall back to English when a translation is missing; the bot labels that fallback instead of presenting English as a translation. Topics are selected by a stable numeric catalog ID and resolved against the current page, keeping callback data within Telegram’s 64-byte limit even for long slugs. An edited/deleted/moved topic prompts the user to choose from the refreshed list. Pagination follows only the page number from API links and always requests the configured backend path.
+
+Startup now sets `MenuButtonCommands`, so Telegram’s menu opens the slash-command list. The Mini App is available through `/app`. No backend change, migration, new port or Nginx update is required for Learn browsing.

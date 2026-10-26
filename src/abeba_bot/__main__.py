@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand, ErrorEvent, MenuButtonWebApp, WebAppInfo
+from aiogram.types import BotCommand, ErrorEvent, MenuButtonCommands
 from .backend import Backend, BackendError
 from .config import Config
 from .handlers import router
@@ -47,7 +47,10 @@ async def run(config):
             [
                 BotCommand(command=cmd, description=desc)
                 for cmd, desc in [
-                    ("start", "Choose native chat or the chat app"),
+                    ("start", "Welcome and commands"),
+                    ("learn", "Browse topics in your language"),
+                    ("chat", "Start or resume AI chat"),
+                    ("app", "Open the Abeba web chat"),
                     ("ask", "Ask Abeba"),
                     ("new", "Start a new conversation"),
                     ("history", "Recent conversations"),
@@ -55,14 +58,13 @@ async def run(config):
                     ("listen", "Hear the latest answer (AI voice)"),
                     ("stop", "Pause native chat"),
                     ("privacy", "Privacy and consent"),
+                    ("withdraw", "Withdraw AI consent"),
                     ("help", "How to use Abeba"),
                 ]
             ]
         )
         await bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="Open chat app", web_app=WebAppInfo(url=config.mini_app_url)
-            )
+            menu_button=MenuButtonCommands()
         )
         async with health_server(config.health_host, config.health_port):
             await dispatcher.start_polling(

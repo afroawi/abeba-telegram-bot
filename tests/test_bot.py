@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from abeba_bot.backend import Backend, BackendError
-from abeba_bot.handlers import chat, menu
+from abeba_bot.handlers import chat, answer_controls
 from abeba_bot.renderers import chat_url, split_text
 
 
@@ -38,11 +38,8 @@ def test_handoff_url_and_utf16_splitting():
     chunks = list(split_text(text))
     assert "".join(chunks) == text
     assert all(len(chunk.encode("utf-16-le")) // 2 <= 4000 for chunk in chunks)
-    assert (
-        menu("https://abeba.example/telegram/chat", 7)
-        .inline_keyboard[1][0]
-        .web_app.url.endswith("?session=7")
-    )
+    assert answer_controls(81).inline_keyboard[0][0].callback_data == "listen:81"
+
 
 
 async def test_group_chat_never_reaches_backend():
@@ -60,20 +57,18 @@ async def test_consent_required_before_chat():
         msg, api, SimpleNamespace(mini_app_url="https://abeba.example/telegram/chat")
     )
     api.request.assert_not_called()
-    assert "Choose Chat here" in msg.answer.call_args.args[0]
+    assert "Before we chat" in msg.answer.call_args.args[0]
+    assert msg.answer.call_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data == "consent:accept"
 
 
-async def test_native_message_has_stable_idempotency_key_and_handoff():
+async def test_native_message_has_stable_idempotency_key_and_no_repeated_navigation():
     msg, api = message(), backend()
     await chat(
         msg, api, SimpleNamespace(mini_app_url="https://abeba.example/telegram/chat")
     )
     assert api.request.call_args.args[3]["request_key"] == "telegram:42:10"
-    assert (
-        msg.answer.call_args.kwargs["reply_markup"]
-        .inline_keyboard[1][0]
-        .web_app.url.endswith("?session=7")
-    )
+    assert msg.answer.call_args.kwargs["reply_markup"] is None
+
 
 
 async def test_backend_error_message_and_service_header():
