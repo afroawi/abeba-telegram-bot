@@ -8,6 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
 
 from .backend import BackendError
+from .actions import chat_action
 from .renderers import markdown_html, safe_url, split_html
 
 LANGUAGES = {
@@ -169,39 +170,40 @@ def reading_context(fields):
 
 
 async def learn_callback(callback, backend):
-    await callback.answer()
+    await callback.answer('Loading…')
     if not callback.message or callback.message.chat.type != 'private' or callback.from_user.is_bot:
         return
-    fields = callback.data.split(':')
-    try:
-        if fields == ['learn', 'languages']:
-            await show_languages(callback.message)
-        elif len(fields) == 4 and fields[1] == 'list':
-            language, page = fields[2], int(fields[3])
-            if language not in LANGUAGES or not 1 <= page <= 10000:
-                raise ValueError
-            await show_topics(callback.message, backend, language, page)
-        elif len(fields) == 5 and fields[1] in {'read', 'langs'}:
-            language, page, topic_id = reading_context(fields[2:])
-            if fields[1] == 'langs':
-                await show_languages(callback.message, f'{language}:{page}:{topic_id}')
+    async with chat_action(callback.message, 'typing'):
+        fields = callback.data.split(':')
+        try:
+            if fields == ['learn', 'languages']:
+                await show_languages(callback.message)
+            elif len(fields) == 4 and fields[1] == 'list':
+                language, page = fields[2], int(fields[3])
+                if language not in LANGUAGES or not 1 <= page <= 10000:
+                    raise ValueError
+                await show_topics(callback.message, backend, language, page)
+            elif len(fields) == 5 and fields[1] in {'read', 'langs'}:
+                language, page, topic_id = reading_context(fields[2:])
+                if fields[1] == 'langs':
+                    await show_languages(callback.message, f'{language}:{page}:{topic_id}')
+                else:
+                    await show_article(callback.message, backend, language, language, page, topic_id)
+            elif len(fields) == 6 and fields[1] == 'switch':
+                requested = fields[2]
+                if requested not in LANGUAGES:
+                    raise ValueError
+                source_language, page, topic_id = reading_context(fields[3:])
+                await show_article(callback.message, backend, requested, source_language, page, topic_id)
             else:
-                await show_article(callback.message, backend, language, language, page, topic_id)
-        elif len(fields) == 6 and fields[1] == 'switch':
-            requested = fields[2]
-            if requested not in LANGUAGES:
                 raise ValueError
-            source_language, page, topic_id = reading_context(fields[3:])
-            await show_article(callback.message, backend, requested, source_language, page, topic_id)
-        else:
-            raise ValueError
-    except (ValueError, TypeError):
-        await callback.message.answer('This reading option has expired. Use /learn to browse again.')
-    except BackendError as exc:
-        if exc.status == 404:
-            await callback.message.answer('This topic or page is no longer available. Use /learn to browse the latest topics.')
-        else:
-            raise
+        except (ValueError, TypeError):
+            await callback.message.answer('This reading option has expired. Use /learn to browse again.')
+        except BackendError as exc:
+            if exc.status == 404:
+                await callback.message.answer('This topic or page is no longer available. Use /learn to browse the latest topics.')
+            else:
+                raise
 
 
 def register_learn_handlers(router):

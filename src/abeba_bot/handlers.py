@@ -14,6 +14,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 from .backend import BackendError
+from .actions import chat_action
 from .renderers import chat_url, reply_html, split_html
 from .media import send_character
 from .learn import register_learn_handlers
@@ -122,7 +123,7 @@ async def open_app(message: Message, backend, config):
 
 @router.callback_query(F.data == "consent:accept")
 async def enable(callback: CallbackQuery, backend, config):
-    await callback.answer()
+    await callback.answer("Saving your choice…")
     session = await identity(callback, backend)
     if not session:
         return
@@ -217,7 +218,7 @@ async def history(message: Message, backend):
 
 @router.callback_query(F.data.startswith("history:"))
 async def select_history(callback: CallbackQuery, backend, config):
-    await callback.answer()
+    await callback.answer("Opening conversation…")
     session = await identity(callback, backend)
     if not session:
         return
@@ -257,7 +258,7 @@ async def language(message: Message):
 
 @router.callback_query(F.data.in_({"language:en", "language:am"}))
 async def set_language(callback: CallbackQuery, backend):
-    await callback.answer()
+    await callback.answer("Updating language…")
     session = await identity(callback, backend)
     if session:
         await backend.request(
@@ -315,16 +316,16 @@ async def chat(message: Message, backend, config, command: CommandObject | None 
         if len(text) > 6000:
             await message.answer("Please keep your question under 6,000 characters.")
             return
-        await message.bot.send_chat_action(message.chat.id, "typing")
-        result = await backend.request(
-            "POST",
-            "channels/chat/messages/",
-            session["token"],
-            {
-                "message": text,
-                "request_key": f"telegram:{message.chat.id}:{message.message_id}",
-            },
-        )
+        async with chat_action(message, "typing"):
+            result = await backend.request(
+                "POST",
+                "channels/chat/messages/",
+                session["token"],
+                {
+                    "message": text,
+                    "request_key": f"telegram:{message.chat.id}:{message.message_id}",
+                },
+            )
         await send_reply(message, result, config, session.get("language", "en"))
     finally:
         active_users.discard(user_id)
@@ -339,19 +340,19 @@ async def deliver_audio(message, session, backend, answer_id, user_id):
         return
     active_users.add(user_id)
     try:
-        await message.bot.send_chat_action(message.chat.id, "record_voice")
-        audio, parts = await backend.audio(session["token"], answer_id)
-        for part in range(1, parts + 1):
-            if part > 1:
-                audio, returned_parts = await backend.audio(session["token"], answer_id, part=part)
-                if returned_parts != parts:
-                    raise BackendError(409, "Audio settings changed. Tap Listen to start again.")
-            caption = "በAI የተፈጠረ ድምፅ" if session.get("language") == "am" else "AI-generated Abeba voice"
-            if parts > 1:
-                caption += f" · {part}/{parts}"
-            await message.answer_audio(BufferedInputFile(audio, filename=f"abeba-{answer_id}-{part}.mp3"),
-                                       title=f"Abeba · {part}/{parts}" if parts > 1 else "Abeba’s answer",
-                                       performer="Abeba (AI voice)", caption=caption, parse_mode=None)
+        async with chat_action(message, "record_voice"):
+            audio, parts = await backend.audio(session["token"], answer_id)
+            for part in range(1, parts + 1):
+                if part > 1:
+                    audio, returned_parts = await backend.audio(session["token"], answer_id, part=part)
+                    if returned_parts != parts:
+                        raise BackendError(409, "Audio settings changed. Tap Listen to start again.")
+                caption = "በAI የተፈጠረ ድምፅ" if session.get("language") == "am" else "AI-generated Abeba voice"
+                if parts > 1:
+                    caption += f" · {part}/{parts}"
+                await message.answer_audio(BufferedInputFile(audio, filename=f"abeba-{answer_id}-{part}.mp3"),
+                                           title=f"Abeba · {part}/{parts}" if parts > 1 else "Abeba’s answer",
+                                           performer="Abeba (AI voice)", caption=caption, parse_mode=None)
     except (BackendError, httpx.HTTPError, TelegramAPIError) as exc:
         log.warning("Audio delivery failed: %s", type(exc).__name__)
         detail = str(exc) if isinstance(exc, BackendError) else "Could not send the audio right now. Please try again."
@@ -362,7 +363,7 @@ async def deliver_audio(message, session, backend, answer_id, user_id):
 
 @router.callback_query(F.data.startswith("listen:"))
 async def listen_answer(callback: CallbackQuery, backend, config):
-    await callback.answer()
+    await callback.answer("Preparing audio…")
     session = await identity(callback, backend)
     if not session:
         return

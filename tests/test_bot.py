@@ -1,8 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+import asyncio
 import httpx
 import pytest
 from abeba_bot.backend import Backend, BackendError
+from abeba_bot.actions import chat_action
 from abeba_bot.handlers import chat, answer_controls
 from abeba_bot.renderers import chat_url, split_text
 
@@ -39,6 +41,17 @@ def test_handoff_url_and_utf16_splitting():
     assert "".join(chunks) == text
     assert all(len(chunk.encode("utf-16-le")) // 2 <= 4000 for chunk in chunks)
     assert answer_controls(81).inline_keyboard[0][0].callback_data == "listen:81"
+
+
+async def test_chat_action_stays_visible_during_slow_work_and_stops_cleanly():
+    msg = message()
+    async with chat_action(msg, "typing", interval=0.01):
+        await asyncio.sleep(0.026)
+    calls_after_exit = msg.bot.send_chat_action.await_count
+    assert calls_after_exit >= 3
+    assert all(call.args == (42, "typing") for call in msg.bot.send_chat_action.call_args_list)
+    await asyncio.sleep(0.015)
+    assert msg.bot.send_chat_action.await_count == calls_after_exit
 
 
 
